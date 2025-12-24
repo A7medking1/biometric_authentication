@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'blocs/auth_cubit.dart';
 import 'widgets/auth_gate.dart';
+import 'widgets/lifecycle_manager.dart';
 
 void main() {
   runApp(const MyApp());
@@ -18,8 +19,12 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Flutter Demo',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple)),
-        home: const AuthGate(child: MyHomePage(title: 'Flutter Demo Home Page')),
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        ),
+        home: const LifecycleManager(
+          child: AuthGate(child: MyHomePage(title: 'Flutter Demo Home Page')),
+        ),
       ),
     );
   }

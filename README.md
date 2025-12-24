@@ -10,6 +10,7 @@ A Flutter application with comprehensive local biometric authentication featurin
 - 🏗️ **State Management** - Flutter Bloc (Cubit) for efficient state management
 - ✅ **Comprehensive Error Handling** - User-friendly error messages for all scenarios
 - 🛡️ **Authentication Gate** - Protect any screen with wrapper widget
+- 🔄 **App Lifecycle Authentication** - Automatic re-authentication when app resumes from background
 - 📱 **Cross-Platform** - Works on both iOS and Android
 
 ## 🏛️ Architecture
@@ -227,6 +228,79 @@ BlocBuilder<AuthCubit, AuthState>(
 )
 ```
 
+## ⏱️ App Lifecycle Authentication
+
+The app automatically locks and requires re-authentication when it resumes from the background. This is configured through the `AuthCubit`.
+
+### Default Behavior (Always Lock)
+
+By default, the app locks immediately when you switch away and return:
+
+```dart
+// In main.dart, the default behavior is already active
+BlocProvider(
+  create: (context) => AuthCubit(), // Default: lockTimeout = 0 seconds
+  child: MaterialApp(...),
+)
+```
+
+**How it works:**
+1. User authenticates and accesses the app
+2. User switches to another app (press home or recent apps)
+3. User returns to the app
+4. **Lock screen appears** requiring re-authentication
+5. User re-authenticates to continue
+
+### Configure Lock Timeout
+
+You can configure a time threshold - the app only locks if it's been in the background longer than the specified duration:
+
+```dart
+// Lock only if app was in background for more than 30 seconds
+BlocProvider(
+  create: (context) {
+    final authCubit = AuthCubit();
+    authCubit.lockTimeout = const Duration(seconds: 30);
+    return authCubit;
+  },
+  child: MaterialApp(...),
+)
+```
+
+**Examples:**
+
+```dart
+// Lock after 1 minute in background
+authCubit.lockTimeout = const Duration(minutes: 1);
+
+// Lock after 5 minutes in background
+authCubit.lockTimeout = const Duration(minutes: 5);
+
+// Always lock on resume (default)
+authCubit.lockTimeout = const Duration(seconds: 0);
+
+// Never lock on resume (disable lifecycle auth)
+authCubit.lockTimeout = const Duration(days: 365); // Effectively disabled
+```
+
+### Manually Lock the App
+
+You can manually trigger the app lock:
+
+```dart
+// Lock the app programmatically
+context.read<AuthCubit>().lockApp();
+
+// Example: Lock after 3 failed attempts
+int failedAttempts = 0;
+if (authFailed) {
+  failedAttempts++;
+  if (failedAttempts >= 3) {
+    context.read<AuthCubit>().lockApp();
+  }
+}
+```
+
 ## 📂 Project Structure
 
 ```
@@ -237,7 +311,8 @@ lib/
 ├── screens/
 │   └── auth_screen.dart         # Authentication UI screen
 ├── widgets/
-│   └── auth_gate.dart           # Authentication wrapper widget
+│   ├── auth_gate.dart           # Authentication wrapper widget
+│   └── lifecycle_manager.dart   # App lifecycle observer
 ├── local_auth_service.dart      # Biometric authentication service
 └── main.dart                    # App entry point
 
@@ -340,7 +415,6 @@ For iOS Simulator, you can simulate biometric authentication:
 - [ ] Session timeout configuration
 - [ ] Multi-factor authentication
 - [ ] Biometric type detection display
-- [ ] App lifecycle authentication (re-auth on resume)
 - [ ] Unit tests for `AuthCubit`
 - [ ] Widget tests for `AuthScreen`
 - [ ] Integration tests for complete flow

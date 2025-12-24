@@ -72,3 +72,17 @@ class BiometricNotEnrolled extends AuthState {
   @override
   List<Object?> get props => [message];
 }
+
+/// State when app is locked due to lifecycle events (app resumed from background)
+class AppLocked extends AuthState {
+  final DateTime lockedAt;
+  final String message;
+
+  const AppLocked({
+    required this.lockedAt,
+    this.message = 'App locked. Please authenticate to continue',
+  });
+
+  @override
+  List<Object?> get props => [lockedAt, message];
+}

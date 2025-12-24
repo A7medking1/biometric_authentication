@@ -48,7 +48,7 @@ class AuthScreen extends StatelessWidget {
                     children: [
                       // App logo or icon
                       Icon(
-                        Icons.fingerprint,
+                        state is AppLocked ? Icons.lock : Icons.fingerprint,
                         size: 120,
                         color: Theme.of(context).colorScheme.primary,
                       ),
@@ -245,6 +245,8 @@ class AuthScreen extends StatelessWidget {
   String _getSubtitle(AuthState state) {
     if (state is AuthLoading) {
       return 'Authenticating...';
+    } else if (state is AppLocked) {
+      return state.message;
     } else if (state is AuthError) {
       return 'Please try again';
     } else if (state is BiometricNotAvailable) {

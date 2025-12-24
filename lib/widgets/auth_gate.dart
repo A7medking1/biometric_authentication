@@ -36,7 +36,7 @@ class _AuthGateState extends State<AuthGate> {
           return widget.child;
         }
 
-        // Show authentication screen for all other states
+        // Show authentication screen for all other states (including AppLocked)
         return const AuthScreen();
       },
     );

@@ -7,6 +7,12 @@ import 'auth_state.dart';
 class AuthCubit extends Cubit<AuthState> {
   AuthCubit() : super(const AuthInitial());
 
+  /// Time when app went to background
+  DateTime? _backgroundTime;
+
+  /// Duration threshold for requiring re-authentication (0 = always lock on resume)
+  Duration lockTimeout = const Duration(seconds: 3);
+
   /// Check if user is currently authenticated
   bool get isAuthenticated => state is Authenticated;
 
@@ -25,6 +31,7 @@ class AuthCubit extends Cubit<AuthState> {
 
       switch (result) {
         case AuthResult.success:
+          _backgroundTime = null; // Clear background time to prevent immediate re-lock
           emit(Authenticated(authenticatedAt: DateTime.now()));
           break;
         case AuthResult.cancelled:
@@ -67,11 +74,13 @@ class AuthCubit extends Cubit<AuthState> {
 
   /// Logout user
   void logout() {
+    _backgroundTime = null; // Clear background time
     emit(const Unauthenticated());
   }
 
   /// Reset to initial state
   void reset() {
+    _backgroundTime = null; // Clear background time
     emit(const AuthInitial());
   }
 
@@ -109,5 +118,46 @@ class AuthCubit extends Cubit<AuthState> {
     String reason = 'Please authenticate to continue',
   }) async {
     await authenticate(reason: reason);
+  }
+
+  /// Lock the app, requiring re-authentication
+  void lockApp() {
+    if (state is Authenticated) {
+      emit(AppLocked(lockedAt: DateTime.now()));
+    }
+  }
+
+  /// Handle app paused/inactive event
+  void handleAppPaused() {
+    _backgroundTime = DateTime.now();
+  }
+
+  /// Handle app resumed event
+  void handleAppResumed() {
+    if (_shouldRequireAuth()) {
+      lockApp();
+    }
+  }
+
+  /// Check if re-authentication is required based on timeout
+  bool _shouldRequireAuth() {
+    // Only require auth if currently authenticated
+    if (state is! Authenticated) {
+      return false;
+    }
+
+    // If no background time recorded, don't require auth
+    if (_backgroundTime == null) {
+      return false;
+    }
+
+    // If timeout is 0, always require auth on resume
+    if (lockTimeout.inSeconds == 0) {
+      return true;
+    }
+
+    // Check if background duration exceeds timeout
+    final backgroundDuration = DateTime.now().difference(_backgroundTime!);
+    return backgroundDuration >= lockTimeout;
   }
 }
