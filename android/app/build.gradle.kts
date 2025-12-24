@@ -46,7 +46,6 @@ android {
                 type = "string",
                 name = "app_name",
                 value = "Flavors production")
-            applicationIdSuffix = ".production"
         }
     }
 
