@@ -151,6 +151,9 @@ relaunching, and verifying the correct remaining lockout time is shown.
 - What if the max-attempts threshold is reached during an already-active lockout? This
   scenario cannot occur (attempts are blocked during lockout), so no additional handling
   is required.
+- What happens when the rate-limit timer expires and the prior lock was a lifecycle lock
+  (`AppLocked`)? The app transitions back to `AppLocked` — not `Unauthenticated`. The
+  lifecycle lock remains in effect until the user successfully authenticates.
 
 ## Requirements *(mandatory)*
 
@@ -168,16 +171,19 @@ relaunching, and verifying the correct remaining lockout time is shown.
   → 240 s, capped at 900 s (15 minutes).
 - **FR-007**: The escalation level (which determines the next lockout duration) MUST reset to
   the lowest level upon successful authentication.
-- **FR-008**: The lockout state (remaining seconds, escalation level, failed count) MUST be
-  persisted to secure storage so it survives app termination.
+- **FR-008**: The lockout state MUST be persisted to secure storage so it survives app
+  termination. Persisted fields: lockout start timestamp, total lockout duration, current
+  escalation level, and consecutive failed attempt count. Remaining time on restore is
+  computed as `total duration − (now − start timestamp)`.
 - **FR-009**: On app launch, the system MUST restore any active lockout state and continue
   counting down from the correct remaining time.
 - **FR-010**: A cancelled authentication attempt (user dismisses the biometric prompt) MUST
   NOT increment the failed attempt counter.
 - **FR-011**: A hardware-unavailable or enrollment-missing event MUST NOT increment the
   failed attempt counter.
-- **FR-012**: The lockout state MUST be represented as a distinct, typed state in the
-  authentication state machine (not conflated with existing error or unauthenticated states).
+- **FR-012**: The lockout MUST be represented as the `AuthRateLimited` state — a distinct,
+  typed state in the authentication state machine (not conflated with `AuthError`,
+  `Unauthenticated`, or `AppLocked`).
 
 ### Key Entities
 
@@ -186,7 +192,8 @@ relaunching, and verifying the correct remaining lockout time is shown.
 - **Lockout Policy**: Defines the maximum attempts threshold (default: 5) and the duration
   schedule per escalation level.
 - **Lockout State**: Carries the remaining duration and escalation level for display and
-  enforcement.
+  enforcement. Persisted as: start timestamp + total duration (remaining recomputed on
+  restore); escalation level; consecutive failed count.
 
 ## Success Criteria *(mandatory)*
 
@@ -205,6 +212,14 @@ relaunching, and verifying the correct remaining lockout time is shown.
 - **SC-006**: 100% of authentication attempts made during an active lockout are blocked
   without presenting a biometric prompt.
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: After rate-limit lockout expires and the user was in `AppLocked` state when they exhausted attempts, which state does the app return to? → A: `AppLocked` — the lifecycle lock remains in effect; the user must still re-authenticate. The rate-limit timer expiry only re-enables the authentication button within the `AppLocked` screen.
+- Q: What is the canonical name for the new attempt-based lockout auth state? → A: `AuthRateLimited` — follows the existing `Auth`-prefix convention (`AuthLoading`, `AuthError`, `AuthInitial`) and is used consistently across all spec references.
+- Q: What data should be persisted to calculate remaining lockout time on app restart? → A: Lockout start timestamp + total duration. Remaining time is computed as `duration − (now − start)` on restore, correctly accounting for elapsed off-time.
+
 ## Assumptions
 
 - The maximum number of allowed consecutive failed attempts before lockout is 5; this value
@@ -217,7 +232,9 @@ relaunching, and verifying the correct remaining lockout time is shown.
   only (lockout is still enforced for the current session, but does not persist across
   restarts).
 - Existing lifecycle-based auto-lock (`AppLocked`) and the new attempt-based lockout
-  (`AuthRateLimited`) are independent mechanisms and MUST NOT conflict.
+  (`AuthRateLimited`) are independent mechanisms. When `AuthRateLimited` timer expires
+  after a sequence that began from `AppLocked`, the app returns to `AppLocked` — not
+  `Unauthenticated`.
 - The exponential backoff schedule is: level 0 → 60 s, level 1 → 120 s, level 2 → 240 s,
   level 3+ → 900 s (cap). These values are internal constants, not user-configurable in v1.
 - Logging of failed attempts for analytics/security audit is deferred to a follow-up
