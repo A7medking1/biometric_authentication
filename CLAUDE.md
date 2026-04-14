@@ -68,3 +68,11 @@ Authenticated → AppLocked (on resume after timeout)
 | [lib/widgets/auth_gate.dart](lib/widgets/auth_gate.dart) | Route guard |
 | [lib/widgets/lifecycle_manager.dart](lib/widgets/lifecycle_manager.dart) | App lifecycle observer |
 | [lib/screens/auth_screen.dart](lib/screens/auth_screen.dart) | Auth UI |
+
+## Recent Changes
+- 001-failed-attempts-limiter: Added Dart 3.9+ / Flutter 3.x (SDK constraint `^3.9.0`) + flutter_bloc ^8.1.6, equatable ^2.0.5, local_auth ^3.0.0,
+- 001-failed-attempts-limiter: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+
+## Active Technologies
+- Dart 3.9+ / Flutter 3.x (SDK constraint `^3.9.0`) + flutter_bloc ^8.1.6, equatable ^2.0.5, local_auth ^3.0.0, (001-failed-attempts-limiter)
+- flutter_secure_storage (Android Keystore AES-256 GCM / iOS Keychain / (001-failed-attempts-limiter)
