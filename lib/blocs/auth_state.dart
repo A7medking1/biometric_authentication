@@ -43,10 +43,19 @@ class AuthError extends AuthState {
   final String message;
   final bool isRecoverable;
 
-  const AuthError({required this.message, this.isRecoverable = true});
+  /// Consecutive failed attempt count at the time this error was emitted.
+  /// Included in props so successive failures produce distinct states and
+  /// are not deduplicated by Equatable (FR-002).
+  final int attemptCount;
+
+  const AuthError({
+    required this.message,
+    this.isRecoverable = true,
+    this.attemptCount = 0,
+  });
 
   @override
-  List<Object?> get props => [message, isRecoverable];
+  List<Object?> get props => [message, isRecoverable, attemptCount];
 }
 
 /// State when biometric is not available
@@ -71,6 +80,23 @@ class BiometricNotEnrolled extends AuthState {
 
   @override
   List<Object?> get props => [message];
+}
+
+/// State when authentication is temporarily blocked due to too many failed attempts (FR-012)
+class AuthRateLimited extends AuthState {
+  /// Seconds remaining until the lockout expires (clamped to [0, lockoutDurationSeconds])
+  final int remainingSeconds;
+
+  /// The escalation level used for the current lockout (pre-increment; determines displayed duration)
+  final int escalationLevel;
+
+  const AuthRateLimited({
+    required this.remainingSeconds,
+    required this.escalationLevel,
+  });
+
+  @override
+  List<Object?> get props => [remainingSeconds, escalationLevel];
 }
 
 /// State when app is locked due to lifecycle events (app resumed from background)

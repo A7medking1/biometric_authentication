@@ -65,22 +65,31 @@ to too many failed attempts.
 
 ```
 AuthInitial
-  └─► AuthLoading ─► Authenticated         (success; resets failedCount + escalation)
-                 ─► Unauthenticated         (cancelled; NO counter increment)
-                 ─► AuthError               (failed attempt; increments failedCount)
-                     └─► [failedCount == kMaxFailedAttempts]
-                          └─► AuthRateLimited  (timer ticking; increments escalation)
-                               └─► [timer expires]
-                                    ├─► AppLocked      (if prior context was lifecycle lock)
-                                    └─► Unauthenticated (if prior context was unauthenticated)
+  └─► AuthLoading ─► Authenticated             (success; resets failedCount + escalation)
+                 ─► Unauthenticated             (cancelled; NO counter increment)
+                 ─► BiometricNotAvailable       (hardware error; NO counter increment)
+                 ─► BiometricNotEnrolled        (not enrolled; NO counter increment)
+                 ─► AuthError                   (failed attempt 1–4; increments failedCount)
+                 ─► AuthRateLimited             (failed attempt 5 = threshold; NO AuthError
+                                                 emitted for this attempt; increments escalation)
+                      └─► [timer expires]
+                           ├─► AppLocked         (if _preLockoutContext == lifecycleLock)
+                           └─► Unauthenticated   (if _preLockoutContext == unauthenticated)
 
 Authenticated
   └─► AppLocked  (lifecycle resume after timeout)
-       └─► AuthLoading ─► [same as above; failed path → AuthRateLimited]
-                                    └─► [timer expires] → AppLocked (prior = lifecycleLock)
+       └─► AuthLoading ─► Authenticated          (success from AppLocked; resets all)
+                       ─► Unauthenticated         (cancelled from AppLocked)
+                       ─► AppLocked               (BiometricNotAvailable / BiometricNotEnrolled
+                                                    from AppLocked — returns to AppLocked,
+                                                    NOT Unauthenticated)
+                       ─► AuthError               (failed attempt 1–4 from AppLocked)
+                       ─► AuthRateLimited         (failed attempt 5 from AppLocked;
+                                                    _preLockoutContext = lifecycleLock)
+                            └─► [timer expires] → AppLocked  (prior = lifecycleLock)
 
-BiometricNotAvailable / BiometricNotEnrolled
-  (no counter change — hardware/enrollment errors are neutral)
+Note: BiometricNotAvailable / BiometricNotEnrolled from AuthInitial/Unauthenticated paths
+return to BiometricNotAvailable / BiometricNotEnrolled states (existing behaviour unchanged).
 ```
 
 ---

@@ -28,14 +28,19 @@ class AuthScreen extends StatelessWidget {
           }
         },
         builder: (context, state) {
+          // AuthRateLimited: show lockout countdown UI (FR-003, T010/T016)
+          if (state is AuthRateLimited) {
+            return _buildLockoutView(context, state);
+          }
+
           return Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  Theme.of(context).colorScheme.secondary.withValues(alpha: 0.1),
                 ],
               ),
             ),
@@ -72,7 +77,7 @@ class AuthScreen extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: Theme.of(
                             context,
-                          ).colorScheme.onSurface.withOpacity(0.7),
+                          ).colorScheme.onSurface.withValues(alpha: 0.7),
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -224,6 +229,83 @@ class AuthScreen extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// Lockout countdown UI — displayed when cubit is in [AuthRateLimited].
+  /// The [BlocBuilder] in the parent rebuilds this widget on every tick,
+  /// so [state.remainingSeconds] is always current (T016).
+  Widget _buildLockoutView(BuildContext context, AuthRateLimited state) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.red.withValues(alpha: 0.08),
+            Theme.of(context).colorScheme.secondary.withValues(alpha: 0.08),
+          ],
+        ),
+      ),
+      child: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.lock_clock,
+                  size: 120,
+                  color: Colors.red.shade400,
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'Too Many Failed Attempts',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade700,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Try again in ${state.remainingSeconds} second${state.remainingSeconds == 1 ? '' : 's'}.',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.7),
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 48),
+                // Disabled authenticate button (FR-012 — no prompt during lockout)
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: null, // disabled
+                    icon: const Icon(Icons.lock, size: 24),
+                    label: Text(
+                      'Locked (${state.remainingSeconds}s)',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

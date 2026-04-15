@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'blocs/auth_cubit.dart';
+import 'services/rate_limit_storage_service.dart';
 import 'widgets/auth_gate.dart';
 import 'widgets/lifecycle_manager.dart';
 
@@ -15,7 +16,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => AuthCubit(),
+      create: (context) =>
+          AuthCubit(storageService: RateLimitStorageService()),
       child: MaterialApp(
         title: 'Flutter Demo',
         debugShowCheckedModeBanner: false,

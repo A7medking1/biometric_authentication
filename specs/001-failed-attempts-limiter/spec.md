@@ -41,6 +41,22 @@ other feature required.
    after the lockout expires,
    **Then** the failed attempt counter resets to 0 and the authenticated session begins.
 
+5. **Given** the user is in `AppLocked` state (session expired due to backgrounding)
+   with 0 prior failed attempts,
+   **When** they fail biometric authentication 5 times consecutively from the locked screen,
+   **Then** the app enters `AuthRateLimited` (the attempt-based lockout supersedes the
+   lifecycle lock; `_preLockoutContext` is set to `lifecycleLock`).
+
+6. **Given** the user is on the authentication screen,
+   **When** they cancel the biometric prompt (dismiss without attempting),
+   **Then** the failed attempt counter is NOT incremented and the authentication button
+   remains available.
+
+7. **Given** the user is on the authentication screen,
+   **When** a hardware-unavailable or enrollment-missing error occurs,
+   **Then** the failed attempt counter is NOT incremented. If the current state was
+   `AppLocked`, the cubit returns to `AppLocked` (not `Unauthenticated`).
+
 ---
 
 ### User Story 2 - Live Countdown During Lockout (Priority: P2)
@@ -72,6 +88,13 @@ re-enables.
    **When** the user returns before the lockout expires,
    **Then** the countdown resumes from the correct remaining time (i.e., elapsed background
    time is counted).
+
+4. **Given** the app is in `AuthRateLimited` with 5 seconds remaining,
+   **When** the user backgrounds the app and the lockout expires while the app is
+   in the background,
+   **When** the user resumes the app,
+   **Then** the lockout screen is NOT shown — the app displays the normal authentication
+   screen (or `AppLocked` if `_preLockoutContext` was `lifecycleLock`).
 
 ---
 
@@ -105,7 +128,9 @@ each successive lockout duration doubles until the cap is reached.
 
 4. **Given** the user is at escalation level 3 and successfully authenticates,
    **When** they next fail 5 times (new lockout event),
-   **Then** the duration resets to 60 seconds (first-level lockout).
+   **Then** the duration resets to 60 seconds (first-level lockout). The escalation reset
+   (level → 0) is also persisted to secure storage so that a subsequent force-kill and
+   relaunch also results in a 60-second first lockout.
 
 ---
 
@@ -136,6 +161,13 @@ relaunching, and verifying the correct remaining lockout time is shown.
    **When** the user attempts to authenticate,
    **Then** the attempt is blocked for the remaining lockout duration.
 
+4. **Given** the user was in `AppLocked` state and triggered `AuthRateLimited` with
+   20 seconds remaining,
+   **When** the app is force-closed and relaunched,
+   **Then** the lockout screen shows approximately 20 seconds remaining. When the lockout
+   expires, the app transitions to `Unauthenticated` (cold-start rule: `_preLockoutContext`
+   is not persisted and defaults to `unauthenticated` on relaunch — NOT `AppLocked`).
+
 ---
 
 ### Edge Cases
@@ -151,6 +183,20 @@ relaunching, and verifying the correct remaining lockout time is shown.
 - What if the max-attempts threshold is reached during an already-active lockout? This
   scenario cannot occur (attempts are blocked during lockout), so no additional handling
   is required.
+- What happens when the app is backgrounded (not killed) while `AuthRateLimited` is
+  active? `_preLockoutContext` is preserved in memory; `Timer.periodic` may not fire
+  reliably on mobile in background. Remaining time is always computed from the persisted
+  `_lockoutStartMs` (absolute start time), so missed ticks do not accumulate error. On
+  foreground resume the next tick immediately corrects any display lag. FR-015 ensures
+  `handleAppResumed()` does not emit `AppLocked` during an active lockout.
+- What is the timer mechanism when the app is backgrounded? The system MUST use
+  `_lockoutStartMs` (absolute timestamp) to compute `remainingSeconds` on every tick —
+  not a decrement-by-one approach — so that background time is counted correctly
+  regardless of whether `Timer.periodic` fires in background (FR-003, US2 Scenario 3).
+- What happens to counter-increment and escalation-increment atomicity? Both operations
+  (increment `_failedAttemptCount` to threshold, increment `_escalationLevel`) occur
+  synchronously in the same event handler with no intermediate state observable between
+  them.
 - What happens when the rate-limit timer expires and the prior lock was a lifecycle lock
   (`AppLocked`)? The app transitions back to `AppLocked` — not `Unauthenticated`. The
   lifecycle lock remains in effect until the user successfully authenticates. **Exception
@@ -164,29 +210,56 @@ relaunching, and verifying the correct remaining lockout time is shown.
 
 - **FR-001**: The system MUST track the number of consecutive failed biometric authentication
   attempts.
-- **FR-002**: After exactly 5 consecutive failed attempts, the system MUST enter a temporary
-  lockout state preventing further authentication attempts.
+- **FR-002**: After exactly 5 consecutive failed attempts, the system MUST transition
+  directly to the `AuthRateLimited` state, preventing further authentication attempts.
+  The lockout-triggering (5th) failure MUST NOT first emit `AuthError` — the transition
+  goes directly from `AuthLoading` to `AuthRateLimited`. The first four failures emit
+  `AuthError` as per the existing failed-attempt path.
 - **FR-003**: During lockout, the system MUST display the remaining wait time to the user,
-  updated every second.
+  updated every second. The displayed `remainingSeconds` value MUST be clamped to
+  [0, lockoutDurationSeconds] and MUST NOT be negative.
 - **FR-004**: The failed attempt counter MUST reset to 0 upon a successful authentication.
 - **FR-005**: The failed attempt counter MUST reset to 0 when the lockout duration expires.
-- **FR-006**: The lockout duration MUST follow an exponential backoff schedule: 60 s → 120 s
-  → 240 s, capped at 900 s (15 minutes).
+  The escalation level (FR-007) is NOT reset on expiry — it persists until a successful
+  authentication.
+- **FR-006**: The lockout duration MUST follow an exponential backoff schedule indexed by
+  escalation level: level 0 → 60 s, level 1 → 120 s, level 2 → 240 s, level 3+ → 900 s
+  (cap). The escalation level index MUST be clamped to the last tier (level 3); any
+  lockout event beyond level 3 uses 900 s indefinitely.
 - **FR-007**: The escalation level (which determines the next lockout duration) MUST reset to
-  the lowest level upon successful authentication.
+  level 0 ONLY upon successful authentication. Lockout expiry (FR-005) does NOT reset the
+  escalation level.
 - **FR-008**: The lockout state MUST be persisted to secure storage so it survives app
   termination. Persisted fields: lockout start timestamp, total lockout duration, current
   escalation level, and consecutive failed attempt count. Remaining time on restore is
   computed as `total duration − (now − start timestamp)`.
 - **FR-009**: On app launch, the system MUST restore any active lockout state and continue
-  counting down from the correct remaining time.
+  counting down from the correct remaining time. On cold-start restore, the prior-context
+  flag (`_preLockoutContext`) defaults to `unauthenticated` — a prior lifecycle lock context
+  is not assumed to carry over after a forced restart (see cold-start exception in Edge Cases).
 - **FR-010**: A cancelled authentication attempt (user dismisses the biometric prompt) MUST
   NOT increment the failed attempt counter.
 - **FR-011**: A hardware-unavailable or enrollment-missing event MUST NOT increment the
-  failed attempt counter.
+  failed attempt counter. When such an event occurs while the cubit state is `AppLocked`,
+  the cubit MUST remain in `AppLocked` (not transition to `Unauthenticated`).
 - **FR-012**: The lockout MUST be represented as the `AuthRateLimited` state — a distinct,
   typed state in the authentication state machine (not conflated with `AuthError`,
-  `Unauthenticated`, or `AppLocked`).
+  `Unauthenticated`, or `AppLocked`). A private `_preLockoutContext` flag MUST be set to
+  `lifecycleLock` when lockout is triggered while cubit state is `AppLocked`, and to
+  `unauthenticated` otherwise. The only valid exit from `AuthRateLimited` is countdown
+  expiry (FR-013). Force-closing the app, hardware errors, and lifecycle backgrounding
+  do NOT exit the lockout state.
+- **FR-013**: When the `AuthRateLimited` countdown reaches zero, the system MUST transition
+  to `AppLocked` if `_preLockoutContext` is `lifecycleLock`, or to `Unauthenticated` if
+  `_preLockoutContext` is `unauthenticated`.
+- **FR-014**: Biometric hardware becoming unavailable during an active `AuthRateLimited`
+  lockout MUST NOT reset, cancel, or bypass the lockout. The `AuthRateLimited` state
+  remains active until the countdown expires normally.
+- **FR-015**: While `AuthCubit` is in `AuthRateLimited` state, the `handleAppResumed()`
+  lifecycle callback MUST NOT emit `AppLocked`. The active lockout supersedes the
+  lifecycle auto-lock until the countdown expires. (`_shouldRequireAuth()` naturally
+  returns false for non-`Authenticated` states, satisfying this requirement without
+  additional branching.)
 
 ### Key Entities
 
@@ -203,11 +276,14 @@ relaunching, and verifying the correct remaining lockout time is shown.
 ### Measurable Outcomes
 
 - **SC-001**: A user can complete all 5 allowed failed attempts and trigger the lockout in
-  under 60 seconds of interaction time.
+  under 60 seconds of interaction time. (Derives from FR-002: threshold is 5 consecutive
+  failures with no artificial delay between attempts.)
 - **SC-002**: The countdown display refreshes at least once per second with no visible lag
-  during the lockout period.
+  during the lockout period. (Derives from FR-003: remaining time updated every second.)
 - **SC-003**: After a successful authentication, the app accepts the next attempt immediately
-  with no residual lockout state.
+  with no residual lockout state. "Residual lockout state" means: active lockout fields
+  (`lockoutStartMs`, `lockoutDurationSeconds`), failed attempt count (FR-004), and
+  escalation level (FR-007) are all cleared to zero on success.
 - **SC-004**: An attacker force-closing and relaunching the app during a lockout is unable
   to bypass the remaining wait time.
 - **SC-005**: The lockout duration caps at 15 minutes regardless of how many successive
@@ -219,9 +295,16 @@ relaunching, and verifying the correct remaining lockout time is shown.
 
 ### Session 2026-04-14
 
-- Q: After rate-limit lockout expires and the user was in `AppLocked` state when they exhausted attempts, which state does the app return to? → A: `AppLocked` — the lifecycle lock remains in effect; the user must still re-authenticate. The rate-limit timer expiry only re-enables the authentication button within the `AppLocked` screen.
+- Q: After rate-limit lockout expires and the user was in `AppLocked` state when they exhausted attempts, which state does the app return to? → A: `AppLocked` — the lifecycle lock remains in effect; the user must still re-authenticate. The rate-limit timer expiry only re-enables the authentication button within the `AppLocked` screen. **Exception (cold start)**: see FR-009 and Edge Cases cold-start note.
 - Q: What is the canonical name for the new attempt-based lockout auth state? → A: `AuthRateLimited` — follows the existing `Auth`-prefix convention (`AuthLoading`, `AuthError`, `AuthInitial`) and is used consistently across all spec references.
 - Q: What data should be persisted to calculate remaining lockout time on app restart? → A: Lockout start timestamp + total duration. Remaining time is computed as `duration − (now − start)` on restore, correctly accounting for elapsed off-time.
+
+### Session 2026-04-15
+
+- Q: Is `_preLockoutContext` preserved during a background/resume cycle (app not killed)? → A: Yes — it is held in memory only. If the app is backgrounded while `AuthRateLimited` is active but not killed, `_preLockoutContext` stays in memory and the timer continues (or is corrected on resume via `_lockoutStartMs`). Only a force-kill loses the context.
+- Q: Are the failed-attempt increment and escalation-level increment atomic? → A: Yes — both occur in a single synchronous event handler on the threshold-triggering failure. No intermediate state is observable between them.
+- Q: What timer mechanism ensures background time is counted? → A: `remainingSeconds` on every tick is computed as `lockoutDurationSeconds − ((now − _lockoutStartMs) / 1000)`, not by decrementing. This means missed ticks in background do not cause drift — the next tick recomputes from the absolute start timestamp.
+- Q: Does `handleAppResumed()` need an explicit `AuthRateLimited` guard? → A: No. The existing `_shouldRequireAuth()` already returns false for any non-`Authenticated` state, including `AuthRateLimited`. FR-015 is satisfied without additional branching.
 
 ## Assumptions
 
