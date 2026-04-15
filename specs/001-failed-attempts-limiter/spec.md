@@ -153,7 +153,10 @@ relaunching, and verifying the correct remaining lockout time is shown.
   is required.
 - What happens when the rate-limit timer expires and the prior lock was a lifecycle lock
   (`AppLocked`)? The app transitions back to `AppLocked` — not `Unauthenticated`. The
-  lifecycle lock remains in effect until the user successfully authenticates.
+  lifecycle lock remains in effect until the user successfully authenticates. **Exception
+  (cold start)**: if the app was force-killed while `AuthRateLimited` was active, the
+  prior context is not persisted and defaults to `unauthenticated` on relaunch. The app
+  transitions to `Unauthenticated` when the lockout expires, not `AppLocked`.
 
 ## Requirements *(mandatory)*
 

@@ -34,7 +34,7 @@
 
 - [ ] T003 [P] Add `AuthRateLimited` state class to `lib/blocs/auth_state.dart`: fields `final int remainingSeconds` and `final int escalationLevel`; extend `AuthState`; override `Equatable.props` as `[remainingSeconds, escalationLevel]`
 - [ ] T004 [P] Create `lib/services/rate_limit_storage_service.dart`: define `RateLimitRecord` class (fields: `failedAttemptCount int`, `escalationLevel int`, `lockoutStartMs int?`, `lockoutDurationSeconds int?`); define storage key constants (`rl_failed_count`, `rl_escalation_level`, `rl_lockout_start_ms`, `rl_lockout_duration_s`); implement `RateLimitStorageService` class with `Future<RateLimitRecord?> loadRecord()`, `Future<void> saveRecord(RateLimitRecord)`, and `Future<void> clearRecord()` backed by `FlutterSecureStorage`
-- [ ] T005 Extend `lib/blocs/auth_cubit.dart`: add top-level constants `const int kMaxFailedAttempts = 5` and `const List<int> kLockoutDurationsSeconds = [60, 120, 240, 900]`; add private `enum _PreLockoutContext { lifecycleLock, unauthenticated }`; add `RateLimitStorageService` as a required constructor parameter; add private fields `_failedAttemptCount`, `_escalationLevel`, `_preLockoutContext`, and `_lockoutTimer` (depends on T003, T004)
+- [ ] T005 Extend `lib/blocs/auth_cubit.dart`: add top-level constants `const int kMaxFailedAttempts = 5` and `const List<int> kLockoutDurationsSeconds = [60, 120, 240, 900]`; add private `enum _PreLockoutContext { lifecycleLock, unauthenticated }`; add `RateLimitStorageService` as a required constructor parameter; add private fields `_failedAttemptCount`, `_escalationLevel`, `_preLockoutContext`, `_lockoutTimer`, `int? _lockoutStartMs`, and `int? _lockoutDurationSeconds` (depends on T003, T004)
 
 **Checkpoint**: `flutter analyze` reports no errors on modified files; all three new constructs are importable.
 
@@ -48,12 +48,12 @@
 
 ### Tests for User Story 1 ⚠️ Write these first — they must FAIL before implementation
 
-- [ ] T006 [P] [US1] In `test/blocs/auth_cubit_rate_limit_test.dart`: write failing tests for — (a) each of the first 4 failures increments internal count without emitting `AuthRateLimited`; (b) the 5th failure emits `AuthRateLimited`; (c) calling `authenticate()` while in `AuthRateLimited` emits no state change and does not call `LocalAuthService.authenticate()`
+- [ ] T006 [P] [US1] In `test/blocs/auth_cubit_rate_limit_test.dart`: write failing tests for — (a) each of the first 4 failures increments internal count without emitting `AuthRateLimited`; (b) the 5th failure emits `AuthRateLimited`; (c) calling `authenticate()` while in `AuthRateLimited` emits no state change and does not call `LocalAuthService.authenticate()`; (d) a `cancelled`, `notAvailable`, or `notEnrolled` outcome does not increment `_failedAttemptCount` and does not advance the count toward lockout (covers FR-010, FR-011)
 - [ ] T007 [P] [US1] In `test/widgets/auth_screen_rate_limit_test.dart`: write failing test — pumping `AuthScreen` with `AuthRateLimited(remainingSeconds: 45, escalationLevel: 0)` renders a lockout message containing "45" and a disabled (non-tappable) auth button
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] In `lib/blocs/auth_cubit.dart` `authenticate()` method: on `LocalAuthResult.failed`, increment `_failedAttemptCount`; when `_failedAttemptCount >= kMaxFailedAttempts`, set `_preLockoutContext` based on whether current state is `AppLocked` (→ `lifecycleLock`) or otherwise (→ `unauthenticated`), then emit `AuthRateLimited(remainingSeconds: kLockoutDurationsSeconds[_escalationLevel], escalationLevel: _escalationLevel)` (depends on T005, T006)
+- [ ] T008 [US1] In `lib/blocs/auth_cubit.dart` `authenticate()` method: on `LocalAuthResult.failed`, increment `_failedAttemptCount`; when `_failedAttemptCount >= kMaxFailedAttempts`, set `_preLockoutContext` based on whether current state is `AppLocked` (→ `lifecycleLock`) or otherwise (→ `unauthenticated`), then emit `AuthRateLimited(remainingSeconds: kLockoutDurationsSeconds[_escalationLevel], escalationLevel: _escalationLevel)`; for the first N < kMaxFailedAttempts failures, the existing `AuthError` emission path continues unchanged (no new state introduced) (depends on T005, T006)
 - [ ] T009 [US1] In `lib/blocs/auth_cubit.dart` `authenticate()` method: add guard at top — if current state is `AuthRateLimited`, return immediately without calling `LocalAuthService`; on `LocalAuthResult.success`, reset `_failedAttemptCount = 0` in `lib/blocs/auth_cubit.dart`
 - [ ] T010 [US1] Add `AuthRateLimited` branch to `lib/screens/auth_screen.dart` `BlocBuilder`: render message "Too many failed attempts. Try again in X seconds." (where X = `state.remainingSeconds`) and a disabled authenticate button (depends on T007)
 
@@ -114,7 +114,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T021 [US4] In `lib/blocs/auth_cubit.dart`: call `await _storageService.saveRecord(RateLimitRecord(failedAttemptCount: _failedAttemptCount, escalationLevel: _escalationLevel, lockoutStartMs: null, lockoutDurationSeconds: null))` after each failed attempt increment; call `saveRecord` again with non-null `lockoutStartMs` and `lockoutDurationSeconds` when the lockout timer starts (depends on T004, T020)
+- [ ] T021 [US4] In `lib/blocs/auth_cubit.dart`: call `await _storageService.saveRecord(RateLimitRecord(failedAttemptCount: _failedAttemptCount, escalationLevel: _escalationLevel, lockoutStartMs: null, lockoutDurationSeconds: null))` after each failed attempt increment; call `saveRecord` again with non-null `lockoutStartMs` and `lockoutDurationSeconds` when the lockout timer starts — this second save MUST occur after `_escalationLevel` has already been incremented (per T018 ordering), so the persisted `escalationLevel` represents the next lockout's tier (depends on T004, T020)
 - [ ] T022 [US4] In `lib/blocs/auth_cubit.dart`: call `await _storageService.clearRecord()` on successful authentication and when the lockout timer reaches 0
 - [ ] T023 [US4] In `lib/blocs/auth_cubit.dart` constructor or early in `authenticate()`: call `await _storageService.loadRecord()`; if record is non-null and `lockoutStartMs != null`, compute `remainingSeconds`; if `remainingSeconds > 0`, restore `_failedAttemptCount`, `_escalationLevel`, and emit `AuthRateLimited(remainingSeconds: remaining, escalationLevel: record.escalationLevel)` then start the countdown timer; if expired, emit `Unauthenticated` and `clearRecord` (defaults `_preLockoutContext` to `unauthenticated` per data-model.md cold-start rule)
 
@@ -126,7 +126,7 @@
 
 - [ ] T024 [P] Run `flutter analyze` from repo root and resolve all warnings and hints across modified files (`auth_state.dart`, `auth_cubit.dart`, `auth_screen.dart`, `rate_limit_storage_service.dart`)
 - [ ] T025 Run `flutter test test/blocs/auth_cubit_rate_limit_test.dart test/widgets/auth_screen_rate_limit_test.dart` and confirm all tests pass with 0 failures
-- [ ] T026 [P] Execute the manual verification scenarios from `specs/001-failed-attempts-limiter/quickstart.md` on a physical or emulated device: lockout trigger, countdown, persistence (force-kill), exponential backoff sequence, and reset-on-success
+- [ ] T026 [P] Execute the manual verification scenarios from `specs/001-failed-attempts-limiter/quickstart.md` on a physical or emulated device: lockout trigger, countdown, persistence (force-kill), exponential backoff sequence, and reset-on-success; also verify SC-001: completing 5 failed attempts and reaching the lockout screen takes under 60 seconds of interaction time
 
 ---
 

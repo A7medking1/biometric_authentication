@@ -15,7 +15,7 @@ written after every failed attempt and every lockout event.
 | Field | Type | Description |
 |-------|------|-------------|
 | `failedAttemptCount` | `int` | Consecutive failed attempts (0–5). Resets to 0 on success or lockout expiry. |
-| `escalationLevel` | `int` | Index into the backoff schedule (0–3). Increments on each lockout event; resets to 0 on success. |
+| `escalationLevel` | `int` | Index into the backoff schedule (0–3). Stores the **post-increment** value (i.e., the level to be used for the *next* lockout). Resets to 0 on success. On restore, `_escalationLevel` is set from this field so the next lockout uses the correct tier. |
 | `lockoutStartMs` | `int?` | `DateTime.now().millisecondsSinceEpoch` at lockout start. `null` when not locked. |
 | `lockoutDurationSeconds` | `int?` | Total lockout duration in seconds for the current lockout event. `null` when not locked. |
 
@@ -46,7 +46,7 @@ to too many failed attempts.
 | Field | Type | Description |
 |-------|------|-------------|
 | `remainingSeconds` | `int` | Seconds until lockout expires. Emitted anew each tick (≥0). |
-| `escalationLevel` | `int` | Current escalation level (for UI messaging, e.g., "Level 2 lockout"). |
+| `escalationLevel` | `int` | The escalation level *used for the current lockout* (pre-increment, i.e., the level whose duration is actively counting down). For UI messaging, e.g., "Level 2 lockout". Note: this differs from `RateLimitRecord.escalationLevel`, which stores the post-increment (next) level. |
 
 `Equatable.props`: `[remainingSeconds, escalationLevel]`
 

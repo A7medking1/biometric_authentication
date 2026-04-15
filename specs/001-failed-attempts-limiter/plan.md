@@ -20,7 +20,7 @@ all UI and cubit logic; a new `RateLimitStorageService` wraps `flutter_secure_st
 **Storage**: flutter_secure_storage (Android Keystore AES-256 GCM / iOS Keychain /
   Windows DPAPI)
 **Testing**: flutter_test (built-in)
-**Target Platform**: Android (API 23+), iOS 10+, Windows
+**Target Platform**: Android (API 23+), iOS 10+ (Windows is supported by `flutter_secure_storage` via DPAPI but is out of scope for v1 acceptance criteria — no Windows-specific test tasks are included)
 **Project Type**: Mobile/desktop app
 **Performance Goals**: Countdown UI ≤ 1-second refresh latency; no jank during
   `Timer.periodic` ticks
