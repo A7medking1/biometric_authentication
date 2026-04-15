@@ -18,6 +18,7 @@ persist (`lockout_start_ms`, `lockout_duration_s`, `escalation_level`,
 `failed_count`).
 
 **Alternatives considered**:
+
 - `shared_preferences`: No encryption — rules it out for security-sensitive lockout data.
 - `sqflite` / `drift`: Relational overhead unjustified for four scalar fields.
 - `hive` with `hive_flutter`: Supports encryption but requires key management
@@ -39,6 +40,7 @@ satisfies the "update every second" requirement. The cubit emits a new
 `AuthScreen` rebuilds the countdown display reactively.
 
 **Alternatives considered**:
+
 - `Stream.periodic` + `StreamSubscription`: Slightly more idiomatic Dart but no
   meaningful advantage over `Timer.periodic` when the timer is cubit-managed.
 - UI-layer `StatefulWidget` with `AnimationController`: Moves timing logic into
@@ -58,6 +60,7 @@ is O(1) lookup, requires no computation at runtime, and is trivially testable.
 auth resets it to 0.
 
 **Alternatives considered**:
+
 - `duration = 60 * 2^level` formula: Works but requires separate cap enforcement;
   the list is more readable and makes the schedule explicit in code.
 - Configurable via `dart_define` or remote config: Over-engineering for a
@@ -69,7 +72,7 @@ auth resets it to 0.
 
 **Decision**: `AuthRateLimited` is a sibling state to `AppLocked`; they MUST NOT
 be nested or merged. When the `AuthRateLimited` timer expires, the cubit checks
-the *pre-lockout context* (a stored enum flag: `_preLockoutContext`) to determine
+the _pre-lockout context_ (a stored enum flag: `_preLockoutContext`) to determine
 whether to emit `AppLocked` or `Unauthenticated` as the successor state.
 
 **Rationale**: The clarification session established that if a user was in
@@ -81,6 +84,7 @@ stored as a cubit field is sufficient; it's set whenever `authenticate()` is
 called and the cubit is in `AppLocked` vs `Unauthenticated`.
 
 **Alternatives considered**:
+
 - Inspecting `_backgroundTime` to re-derive context: Fragile; `_backgroundTime`
   gets cleared on various paths.
 - Storing prior state type: Same information, slightly more coupling to state class
@@ -97,11 +101,13 @@ via constructor injection (dependency inversion).
 **Rationale**: Constitution Principle II mandates platform abstraction. Injecting
 the service makes it mockable for unit tests (Principle V), consistent with how
 `LocalAuthService` is structured. The service exposes:
+
 - `Future<RateLimitRecord?> loadRecord()`
 - `Future<void> saveRecord(RateLimitRecord record)`
 - `Future<void> clearRecord()`
 
 **Alternatives considered**:
+
 - Direct `flutter_secure_storage` calls inside `AuthCubit`: Violates platform
   abstraction and makes unit testing require real storage.
 - Static methods (mirroring `LocalAuthService`): `LocalAuthService` is static for
